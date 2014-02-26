@@ -27,4 +27,4 @@ requires:
   perl: 5.010001
 resources:
   repository: https://gitorious.org/text-amuse-compile
-version: 0.01
+version: 0.02
