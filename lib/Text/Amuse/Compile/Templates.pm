@@ -63,7 +63,7 @@ filter out garbage in an exposed environment (such a web interface).
 
 =over 4
 
-=item options.size
+=item options.papersize
 
 Paper size, like a4, a5 or 210mm:11in. The width and heigth are
 swapped in some komascript version. Just keep this in mind and do some
@@ -76,7 +76,11 @@ The DIV of the C<typearea> package. Defaults to 12. Go and read the doc.
 =item options.bcor
 
 The BCOR of the C<typearea> package. Defaults to 0mm. Go and read the doc.
-Expected a TeX dimension like 10mm or 1in or 1.2cm
+It expects a TeX dimension like 10mm or 1in or 1.2cm.
+
+B<Please note that this has no effect on the plain PDF output>, as we,
+opinionately, force BCOR=0mm and oneside=true for this kind of output.
+But, of course, it does affect the imposed output.
 
 =item options.fontsize
 
@@ -90,11 +94,15 @@ to C<Linux Libertine O>.
 
 =item options.oneside
 
-Set it to a true value to have a oneside document. Default true
+Set it to a true value to have a oneside document. Default is true.
 
 =item options.twoside
 
-Set it to a true value to have a twosided document.
+Set it to a true value to have a twosided document. Default is false.
+
+B<Please note that this has no effect on the plain PDF output>, as we,
+opinionately, force BCOR=0mm and oneside=true for this kind of output.
+But, of course, it does affect the imposed output.
 
 =back
 
@@ -502,13 +510,15 @@ sub latex {
     }
     my $latex = <<'EOF';
 [% # this is the preamble of the preamble... -%]
-[% # set the dimension                       -%]
-[% IF options.size == 'half-a4'              -%]
+[% # set the dimension and define aliases    -%]
+[% IF options.papersize == 'half-a4'         -%]
 [% SET paper = 'a5'                          -%]
-[% ELSIF options.size == 'half-lt'           -%]
+[% ELSIF options.papersize == 'half-lt'      -%]
 [% SET paper = '5.5in:8.5in'                 -%]
-[% ELSIF options.size                        -%]
-[% SET paper = options.size                  -%]
+[% ELSIF options.papersize == 'generic'      -%]
+[% SET paper = '210mm:11in'                  -%]
+[% ELSIF options.papersize                   -%]
+[% SET paper = options.papersize             -%]
 [% ELSE                                      -%]
 [% # fits letter and a4                      -%]
 [% SET paper = '210mm:11in'                  -%]
