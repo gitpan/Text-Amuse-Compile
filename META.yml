@@ -22,10 +22,11 @@ requires:
   Archive::Zip: 0
   EBook::EPUB: 0.6
   File::Slurp: 0
+  IO::Pipe: 0
   PDF::Imposition: 0.05
   Template: 2.24
   Text::Amuse: 0.11
   perl: 5.010001
 resources:
   repository: https://gitorious.org/text-amuse-compile
-version: 0.09
+version: 0.10

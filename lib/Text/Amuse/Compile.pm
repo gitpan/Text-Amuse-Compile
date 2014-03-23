@@ -11,6 +11,7 @@ use Text::Amuse::Compile::Templates;
 use Text::Amuse::Compile::File;
 use Text::Amuse::Compile::Merged;
 use Cwd;
+use IO::Pipe;
 
 =head1 NAME
 
@@ -18,11 +19,11 @@ Text::Amuse::Compile - Compiler for Text::Amuse
 
 =head1 VERSION
 
-Version 0.09
+Version 0.10
 
 =cut
 
-our $VERSION = '0.09';
+our $VERSION = '0.10';
 
 =head1 SYNOPSIS
 
@@ -198,6 +199,22 @@ sub version {
       "PDF::Imposition $pdfv\n";
 }
 
+=head3 logger
+
+Subroutine reference stored in the object when forking itself to
+compile the file. The parent process has this to undef. The child
+store a sub which then passes to L<Text::Amuse::Compile::File>
+
+=cut
+
+sub logger {
+    my ($self, $sub) = @_;
+    if (@_ > 1) {
+        $self->{logger} = $sub;
+    }
+    return $self->{logger};
+}
+
 =head3 compile($file1, $file2, ...);
 
 Main method to get the job done, passing the list of muse files. You
@@ -272,34 +289,43 @@ sub compile {
     foreach my $file (@files) {
         # print "pid: $$\n";
         # fork here before we change dir
-        my $pid = open(my $kid, "-|");
+        my $pipe = IO::Pipe->new;
+        my $pid = fork();
         defined $pid or die "can't fork $!";
         if ($pid) {
+            $pipe->reader;
             # print "$$ Kid is $pid, I'm in " . getcwd() . "\n";
             my @report;
-            while (<$kid>) {
-                print;
+            while (<$pipe>) {
+                print '# ' . $_;
                 push @report, $_;
             }
-            close $kid or $self->report_failure(@report,
-                                                "Failure to compile $file $!\n");
-            # print getcwd . "\n";
+            wait;
+            if ($? != 0) {
+                $self->report_failure(@report,
+                                      "Failure to compile $file $!\n");
+            }
         }
         else {
-            open(STDERR, ">&STDOUT") or die "can't dup stdout: $!";
+            $pipe->writer;
+            $pipe->autoflush(1);
+            # here we are in another process, which will compile one
+            # thing and exit.
+            my $logger = sub {
+                print $pipe @_ if @_;
+            };
+            $self->logger($logger);
             if (ref($file)) {
-                print "Working on virtual file in " . getcwd(). "\n";
+                $self->logger->("Working on virtual file in " . getcwd(). "\n");
+                # those eval are needed if some parent eval catch the exception
+                # and never reaching the exit;
                 eval { $self->_compile_virtual_file($file); };
-
             }
             else {
-                print "Working on $file in " . getcwd() . "\n";
+                $self->logger->("Working on $file in " . getcwd() . "\n");
                 eval { $self->_compile_file($file); };
             }
-            print $@ if $@;
-            # if the module is inside an eval, when we die in
-            # _compile_file the exception is caught and the fork
-            # doesn't exit, so use exit here.
+            print $pipe $@ if $@;
             $@ ? exit 2 : exit 0;
         }
     }
@@ -326,6 +352,7 @@ sub _compile_virtual_file {
                                                templates => $self->templates,
                                                options => { $self->extra },
                                                document => $doc,
+                                               logger => $self->logger,
                                               );
     $self->_muse_compile($muse);
     exit;
@@ -351,6 +378,7 @@ sub _compile_file {
                 suffix => $suffix,
                 templates => $self->templates,
                 options => { $self->extra },
+                logger => $self->logger,
                );
 
     my $muse = Text::Amuse::Compile::File->new(%args);
@@ -386,7 +414,7 @@ sub _muse_compile {
                     my $ext = $method;
                     $ext =~ s/_/./g;
                     $ext = '.' . $ext;
-                    print "Created " . $muse->name . $ext . "\n";
+                    $self->logger->("Created " . $muse->name . $ext . "\n");
                 }
             }
         }
