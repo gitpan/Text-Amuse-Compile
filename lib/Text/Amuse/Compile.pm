@@ -6,6 +6,7 @@ use warnings FATAL => 'all';
 
 use File::Basename;
 use File::Temp;
+use File::Find;
 
 use Text::Amuse::Compile::Templates;
 use Text::Amuse::Compile::File;
@@ -18,11 +19,11 @@ Text::Amuse::Compile - Compiler for Text::Amuse
 
 =head1 VERSION
 
-Version 0.12
+Version 0.13
 
 =cut
 
-our $VERSION = '0.12';
+our $VERSION = '0.13';
 
 =head1 SYNOPSIS
 
@@ -41,6 +42,10 @@ Constructor. It will accept the following options
 Format options (by default all of them are activated);
 
 =over 4
+
+=item cleanup
+
+Remove auxiliary files after compilation (.status, .ok)
 
 =item tex
 
@@ -122,6 +127,8 @@ sub new {
         $self->{extra} = { %$extraref };
     }
 
+    $self->{cleanup} = delete $params{cleanup};
+
     # options passed, null out and reparse the params
     if (%params) {
         foreach my $k (qw/pdf a4_pdf lt_pdf epub html bare_html tex zip/) {
@@ -165,6 +172,10 @@ sub templates {
     return shift->{templates};
 }
 
+sub cleanup {
+    return shift->{cleanup};
+}
+
 sub extra {
     my $self = shift;
     my $hashref = $self->{extra};
@@ -200,9 +211,7 @@ sub version {
 
 =head3 logger
 
-Subroutine reference stored in the object when forking itself to
-compile the file. The parent process has this to undef. The child
-store a sub which then passes to L<Text::Amuse::Compile::File>
+Subroutine reference for logging.
 
 =cut
 
@@ -216,6 +225,77 @@ sub logger {
     }
     return $self->{logger};
 }
+
+=head3 recursive_compile($directory)
+
+Compile recursive a directory, comparing the timestamps of the status
+file with the muse file. If the status file is newer, the file is
+ignored.
+
+Return a list of absolute path to the files processed. To infer the
+success or the failure of each file look at the status file or at the
+logs.
+
+=head3 find_muse_files($directory)
+
+Return a sorted list of files with extension .muse excluding illegal
+names (including hidden files)  and directories.
+
+=head3 find_new_muse_files($directory)
+
+As above, but check the age of the status file and skip already
+processed files.
+
+=cut
+
+sub find_muse_files {
+    my ($self, $dir) = @_;
+    my @files;
+    die "$dir is not a dir" unless ($dir && -d $dir);
+    find( sub {
+              my $file = $_;
+              # file only
+              return unless -f $file;
+              return unless $file =~ m/^[0-9a-z][0-9a-z-]+[0-9a-z]+\.muse$/;
+              # exclude hidden directories
+              if ($File::Find::dir =~ m/\./) {
+                  my @dirs = File::Spec->splitdir($File::Find::dir);
+                  my @dots = grep { m/^\./ } @dirs;
+                  return if @dots;
+              }
+              push @files, File::Spec->rel2abs($file);
+          }, $dir);
+    return sort @files;
+}
+
+sub find_new_muse_files {
+    my ($self, $dir) = @_;
+    my @candidates = $self->find_muse_files($dir);
+    my @newf;
+    my $mtime = 9;
+    while (@candidates) {
+        my $f = shift(@candidates);
+        die "I was expecting a file here" unless $f && -f $f;
+        my $status = $f;
+        $status =~ s/\.muse$/.status/;
+        if (! -f $status) {
+            push @newf, $f;
+        }
+        elsif ((stat($f))[$mtime] > (stat($status))[$mtime]) {
+            push @newf, $f;
+        }
+        # else {
+        #     print "Skipping $f\n";
+        # }
+    }
+    return @newf;
+}
+
+sub recursive_compile {
+    my ($self, $dir) = @_;
+    return $self->compile($self->find_new_muse_files($dir));
+}
+
 
 =head3 compile($file1, $file2, ...);
 
@@ -289,11 +369,16 @@ sub compile {
     my ($self, @files) = @_;
     $self->reset_errors;
     my $cwd = getcwd;
+    my @compiled;
     foreach my $file (@files) {
-        # print Dumper($file);
         chdir $cwd or die "Couldn't chdir into $cwd $!";
         my @report;
         my $logger = sub {
+            my @args = @_;
+            foreach my $arg (@args) {
+                chomp $arg;
+                print "# $arg\n";
+            }
             push @report, @_;
         };
         $self->logger($logger);
@@ -315,9 +400,13 @@ sub compile {
             $self->report_failure(@report,
                                   "Failure to compile $file\n");
         }
+        else {
+            push @compiled, $file;
+        }
         $self->logger(undef);
         undef @report;
     }
+    return @compiled;
 }
 
 sub _compile_virtual_file {
@@ -401,7 +490,7 @@ sub _muse_compile {
                     my $ext = $method;
                     $ext =~ s/_/./g;
                     $ext = '.' . $ext;
-                    $self->logger->("Created " . $muse->name . $ext . "\n");
+                    $self->logger->("* Created " . $muse->name . $ext . "\n");
                 }
             }
         }
@@ -410,6 +499,7 @@ sub _muse_compile {
         die join(" ", @fatals);
     }
     $muse->mark_as_closed;
+    $muse->cleanup if $self->cleanup;
 }
 
 =head3 report_failure($message1, $message2, ...)
@@ -448,7 +538,7 @@ sub report_failure {
         $self->report_failure_sub->(@args);
     }
     else {
-        print join('\n', @args);
+        print join("\n", @args);
     }
 }
 

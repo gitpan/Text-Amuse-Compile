@@ -46,13 +46,13 @@ is($file->name, 'test');
 is($file->suffix, '.muse');
 ok($file->templates->html);
 ok(!$file->is_deleted);
-is($file->complete_file, 'test.ok');
-is($file->lockfile, 'test.lock');
+is($file->status_file, 'test.status');
+is($file->lock_file, 'test.lock');
 like $file->document->as_latex, qr/\\& Ćao! \\emph{another}/;
 like $file->document->as_html, qr{<em>test</em> &amp; Ćao! <em>another</em>};
 ok($file->tt);
 
-foreach my $ext (qw/.html .tex .pdf .bare.html .epub .zip/) {
+foreach my $ext (qw/.html .tex .pdf .bare.html .epub .zip .status/) {
     unlink $file->name . $ext;
 }
 
@@ -114,3 +114,4 @@ foreach my $ext ($file->purged_extensions) {
 }
 ok(! -f 'deleted.html');
 
+$file->cleanup;

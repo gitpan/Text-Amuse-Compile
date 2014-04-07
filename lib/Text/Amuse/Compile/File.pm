@@ -64,7 +64,7 @@ an hash, not as a reference, to protect it from mangling.
 
 =item is_deleted
 
-=item complete_file
+=item status_file
 
 =item mark_as_closed
 
@@ -72,7 +72,7 @@ an hash, not as a reference, to protect it from mangling.
 
 =item purged_extensions
 
-=item lockfile
+=item lock_file
 
 =item muse_file
 
@@ -87,6 +87,10 @@ The L<Template> object
 =item logger
 
 The logger subroutine set in the constructor.
+
+=item cleanup
+
+Remove auxiliary files (like the complete file and the status file)
 
 =back
 
@@ -128,7 +132,7 @@ sub templates {
     return shift->{templates};
 }
 
-sub lockfile {
+sub lock_file {
     return shift->name . '.lock';
 }
 
@@ -137,8 +141,8 @@ sub muse_file {
     return $self->name . $self->suffix;
 }
 
-sub complete_file {
-    return shift->name . '.ok';
+sub status_file {
+    return shift->name . '.status';
 }
 
 sub is_deleted {
@@ -182,13 +186,12 @@ sub document {
 
 sub mark_as_open {
     my $self = shift;
-    my $lockfile = $self->lockfile;
+    my $lock_file = $self->lock_file;
     if ($self->_lock_is_valid) {
-        $self->log_info("Locked: $lockfile\n");
+        $self->log_info("Locked: $lock_file\n");
         return 0;
     }
     else {
-        $self->purge('.ok');
         my $deleted;
         # it could be virtual
         if (!$self->virtual) {
@@ -198,10 +201,14 @@ sub mark_as_open {
             # TODO maybe use storable?
         }
         my $localtime = localtime(time());
-        $self->_write_file($lockfile, $$ . ' ' . $localtime . "\n");
+        $self->_write_file($lock_file, $$ . ' ' . $localtime . "\n");
         $self->_set_is_deleted($deleted);
         if ($self->is_deleted) {
             $self->purge_all;
+            $self->_update_status_file('DELETED');
+        }
+        else {
+            $self->_update_status_file('STARTED');
         }
         return 1;
     }
@@ -209,11 +216,11 @@ sub mark_as_open {
 
 sub mark_as_closed {
     my $self = shift;
-    my $lockfile = $self->lockfile;
-    unlink $lockfile or $self->log_fatal("Couldn't unlink $lockfile!");
+    my $lock_file = $self->lock_file;
+    unlink $lock_file or $self->log_fatal("Couldn't unlink $lock_file!");
     # TODO maybe use storable?
     my $localtime = localtime(time());
-    $self->_write_file($self->complete_file, $$ . ' ' . $localtime . "\n");
+    $self->_write_file($self->status_file, $$ . ' OK ' . $localtime . "\n");
 }
 
 =head2 purge_all
@@ -278,18 +285,20 @@ sub _write_file {
 
 sub _lock_is_valid {
     my $self = shift;
-    my $lockfile = $self->lockfile;
-    return unless -f $lockfile;
+    my $lock_file = $self->lock_file;
+    return unless -f $lock_file;
+    warn "Found a lock_file: " . File::Spec->rel2abs($lock_file);
     # TODO use storable instead
-    open (my $fh, '<', $lockfile)
-      or $self->log_fatal("Couldn't open $lockfile $!");
+    open (my $fh, '<', $lock_file)
+      or $self->log_fatal("Couldn't open $lock_file $!");
     my $pid;
     my $string = <$fh>;
     if ($string =~ m/^(\d+)/) {
         $pid = $1;
+        warn "Found pid $pid in the lock_file (I am $$)\n";
     }
     else {
-        $self->log_fatal("Bad lockfile!\n");
+        $self->log_fatal("Bad lock_file!\n");
     }
     close $fh;
     return unless $pid;
@@ -724,16 +733,30 @@ sub log_info {
 sub log_fatal {
     my ($self, @info) = @_;
     $self->log_info(@info);
-    my $lockfile = $self->lockfile;
-    if (-f $lockfile) {
-        unlink $lockfile or $self->log_fatal("Couldn't unlink lockfile!");
+    my $lock_file = $self->lock_file;
+    if (-f $lock_file) {
+        unlink $lock_file or die("Couldn't unlink lock_file!");
     }
     die "Fatal exception\n";
 }
 
+sub cleanup {
+    my $self = shift;
+    if (my $f = $self->status_file) {
+        if (-f $f) {
+            unlink $f or $self->log_fatal("Couldn't unlink $f $!");
+        }
+        else {
+            $self->log_info("Couldn't find " . File::Spec->rel2abs($f));
+        }
+    }
+}
 
-
-
-
+sub _update_status_file {
+    my ($self, $msg) = @_;
+    $msg ||= '??';
+    my $localtime = localtime();
+    $self->_write_file($self->status_file, "$$ $msg $localtime\n");
+}
 
 1;

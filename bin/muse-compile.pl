@@ -10,6 +10,7 @@ use File::Path qw/mkpath/;
 use File::Spec::Functions qw/catfile/;
 use Pod::Usage;
 use File::Slurp qw/append_file/;
+use Encode;
 
 binmode STDOUT, ':encoding(utf-8)';
 binmode STDERR, ':encoding(utf-8)';
@@ -28,6 +29,9 @@ GetOptions (\%options,
                output-templates
                log=s
                extra=s%
+               no-cleanup
+               recursive=s
+               dry-run
                help/);
 
 if ($options{help}) {
@@ -99,11 +103,18 @@ Option to populated the above directory with the built-in templates.
 
 A file where we can append the report failures
 
+=item --no-cleanup
+
+Prevent the removing of the status file. This is turned on if you use
+--recursive, to prevent multiple runs to compile everything again.
+
 =item --extra key:value
 
 This option can be repeated at will. The key/value pairs will be
 passed to every template we process, regardless of the type, even if
 only the built-in LaTeX template support them.
+
+The input is assumed to be UTF-8 (if you pass non-ascii characters)
 
 Example:
 
@@ -119,6 +130,19 @@ filename (not reccomended, because the full path will remain in the
 .tex source), or a basename (even without extension) which can be
 found by C<kpsewhich>.
 
+=item --recursive <directory>
+
+Using this options, the target directory and a recursive compiling is
+started, finding all the .muse files without a newer status file, and
+compiling them accordingly to the options.
+
+No target files can be specified.
+
+=item --dry-run
+
+For recursive compile, you can pass this option to just list the files
+which would be compiled.
+
 =back
 
 =cut
@@ -129,7 +153,11 @@ my $output_templates = delete $options{'output-templates'};
 my $logfile = delete $options{log};
 
 if ($options{extra}) {
-    $args{extra} = delete $options{extra};
+    my $extras = delete $options{extra};
+    foreach my $k (keys %$extras) {
+        $extras->{$k} = decode('utf-8', $extras->{$k});
+    }
+    $args{extra} = $extras;
 }
 
 # manage some dependencies
@@ -141,6 +169,20 @@ if ($options{zip}) {
 if ($options{pdf}) {
     $options{tex} = 1;
 }
+
+my $recursive  = delete $options{recursive};
+my $cleanup = 1;
+my $dry_run = delete $options{'dry-run'};
+
+if ($dry_run && !$recursive) {
+    die "dry-run is supported only for recursive compile\n";
+}
+
+
+if (delete($options{'no-cleanup'}) || $recursive) {
+    $cleanup = 0;
+}
+
 foreach my $k (keys %options) {
     my $newk = $k;
     $newk =~ s/-/_/g;
@@ -154,7 +196,8 @@ if ($output_templates and exists $options{ttdir}) {
     }
 }
 
-my $compiler = Text::Amuse::Compile->new(%args);
+my $compiler = Text::Amuse::Compile->new(%args, cleanup => $cleanup);
+
 if ($logfile) {
     if ($logfile !~ m/\.log$/) {
         warn "Appending .log to $logfile\n";
@@ -191,7 +234,29 @@ if ($output_templates) {
     }
 }
 
-$compiler->compile(@ARGV);
+if ($recursive) {
+    die "Too many arguments passed with compile!" if @ARGV;
+    die "$recursive is not a directory" unless -d $recursive;
+    print "Starting recursive compilation against $recursive\n";
+    my @results;
+    if ($dry_run) {
+        @results = $compiler->find_new_muse_files($recursive);
+        print "[dry-run mode, nothing will be done]\n";
+    }
+    else {
+        @results = $compiler->recursive_compile($recursive);
+    }
+    if (@results) {
+        print "Found and compiled the following files:\n"
+          . join("\n", @results) . "\n";
+    }
+    else {
+        print "Nothing to do\n";
+    }
+}
+else {
+    $compiler->compile(@ARGV);
+}
 
 if ($compiler->errors) {
     $logfile ||= "above";
