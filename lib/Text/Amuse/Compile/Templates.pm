@@ -91,7 +91,7 @@ But, of course, it does affect the imposed output.
 
 The font size in point (should be an integer). Defaults to 10.
 
-=item mainfont
+=item options.mainfont
 
 The system font name, such as C<Linux Libertine O> or C<Charis SIL>.
 This implementation uses XeLaTeX, so we can use system fonts. Defaults
@@ -110,6 +110,24 @@ opinionately, force BCOR=0mm and oneside=true for this kind of output.
 But, of course, it does affect the imposed output.
 
 =back
+
+=head4 Cover
+
+=over 4
+
+=item options.cover
+
+When this option is set to a true value, skip the creation of the
+title page with \maketitle, and instead build a custome one, with the
+cover placed in the middle of the page.
+
+=item options.coverwidth
+
+Option to control the cover width, when is set (ignored otherwise).
+Defaults to C<0.65\textwidth>
+
+=back
+
 
 =head4 Colophon
 
@@ -461,6 +479,33 @@ div#tableofcontents{
 	font-weight: normal;
 	font-size: 8pt;
 }
+
+
+/* footnotes */
+
+a.footnote, a.footnotebody {
+    font-size: 8pt;
+    line-height: 0;
+    vertical-align: super;
+}
+
+* + p.fnline {
+    margin-top: 3em;
+    border-top: 1px solid black;
+    padding-top: 2em;
+}
+
+p.fnline + p.fnline {
+    margin-top: 1em;
+    border-top: none;
+    padding-top: 0;
+}
+
+p.fnline {
+    font-size: 8pt;
+}
+/* end footnotes */
+
 EOF
     return \$css;
 }
@@ -677,8 +722,38 @@ sub latex {
 \date{[% doc.header_as_latex.date %]}
 \author{[% doc.header_as_latex.author %]}
 \subtitle{[% doc.header_as_latex.subtitle %]}
+
 \begin{document}
+
+[% IF options.cover %]
+  \thispagestyle{empty}
+  \strut\bigskip
+  \begin{center}
+    [% IF doc.header_as_latex.author %]
+    {\Large\textbf{[% doc.header_as_latex.author %]}\\[\baselineskip]}
+    [% END %]
+    {\LARGE\textbf{[%doc.header_as_latex.title %]\\[\baselineskip]}}
+    [% IF doc.header_as_latex.subtitle %]
+      {\Large{\bfseries [%doc.header_as_latex.subtitle %]\\[\baselineskip]}}
+    [% END %]
+
+[% IF options.coverwidth               -%]
+[% SET coverwidth = options.coverwidth -%]
+[% ELSE                                -%]
+[% SET coverwidth = '0.65\textwidth'   -%]
+[% END -%]
+    \vfill
+    \includegraphics[width=[% coverwidth %]]{[% options.cover %]}
+    \vfill
+    [% IF doc.header_as_latex.date %]
+    {\large [% doc.header_as_latex.date %]}
+    [% END %]
+    \strut
+  \end{center}
+\cleardoublepage
+[% ELSE %]
 \maketitle
+[% END %]
 
 [% IF doc.wants_toc %]
 
