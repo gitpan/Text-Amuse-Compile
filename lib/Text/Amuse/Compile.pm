@@ -19,11 +19,11 @@ Text::Amuse::Compile - Compiler for Text::Amuse
 
 =head1 VERSION
 
-Version 0.15
+Version 0.16
 
 =cut
 
-our $VERSION = '0.15';
+our $VERSION = '0.16';
 
 =head1 SYNOPSIS
 
@@ -122,6 +122,7 @@ sub new {
       Text::Amuse::Compile::Templates->new(ttdir => delete($params{ttdir}));
 
     $self->{report_failure_sub} = delete $params{report_failure_sub};
+    $self->{logger} = delete $params{logger};
 
     if (my $extraref = delete $params{extra}) {
         $self->{extra} = { %$extraref };
@@ -209,9 +210,10 @@ sub version {
       "PDF::Imposition $pdfv\n";
 }
 
-=head3 logger
+=head3 logger($sub)
 
-Subroutine reference for logging.
+Accessor/setter for the subroutine which will handle the logging.
+Defaults to printing to the standard output.
 
 =cut
 
@@ -375,16 +377,6 @@ sub compile {
     my @compiled;
     foreach my $file (@files) {
         chdir $cwd or die "Couldn't chdir into $cwd $!";
-        my @report;
-        my $logger = sub {
-            my @args = @_;
-            foreach my $arg (@args) {
-                chomp $arg;
-                print "# $arg\n";
-            }
-            push @report, @_;
-        };
-        $self->logger($logger);
         if (ref($file)) {
             $self->logger->("Working on virtual file in " . getcwd(). "\n");
             eval { $self->_compile_virtual_file($file); };
@@ -393,21 +385,16 @@ sub compile {
             $self->logger->("Working on $file in " . getcwd() . "\n");
             eval { $self->_compile_file($file); };
         }
-        my $fatal;
-        if ($@) {
-            $fatal = 1;
-            $self->logger->($@);
-        }
+        my $fatal = $@;
         chdir $cwd or die "Couldn't chdir into $cwd $!";
         if ($fatal) {
-            $self->report_failure(@report,
-                                  "Failure to compile $file\n");
+            $self->logger->($fatal);
+            $self->add_errors("$file $fatal");
+            $self->report_failure_sub->($file);
         }
         else {
             push @compiled, $file;
         }
-        $self->logger(undef);
-        undef @report;
     }
     return @compiled;
 }
@@ -505,45 +492,28 @@ sub _muse_compile {
     $muse->cleanup if $self->cleanup;
 }
 
-=head3 report_failure($message1, $message2, ...)
+=head3 report_failure_sub(sub { push @problems, $_[0] });
 
-This method is called when the compilation of a file raises an
-exception, so it's for internal usage.
+You can set the sub to be used to report problems using this accessor.
+It will receive as first argument the file which led to failure.
 
-It passes the arguments along to C<report_failure_sub> as a list if
-you set that to a sub, otherwise it prints to the standard error.
-
-=head3 report_failure_sub(sub { my @problems = @_ ; print @problems });
-
-You can set the sub to be used to report problems using this accessor,
-which is supposed to receive the list of messages. 
+The actual errors are logged by the C<logger> sub.
 
 =cut
 
 sub report_failure_sub {
     my ($self, $sub) = @_;
-    if ($sub) {
-        if (ref($sub) eq 'CODE') {
-            $self->{report_failure_sub} = $sub;
-        }
-        else {
-            die "First argument must be a sub!";
-        }
+    if (@_ > 1) {
+        $self->{report_failure_sub} = $sub;
+    }
+    elsif (!$self->{report_failure_sub}) {
+        $self->{report_failure_sub} = sub {
+            print "Failure to compile $_[0]\n";
+        };
     }
     return $self->{report_failure_sub};
 }
 
-sub report_failure {
-    my ($self, @args) = @_;
-    # print "Reporting the failure..\n";
-    $self->add_errors(@args);
-    if ($self->report_failure_sub) {
-        $self->report_failure_sub->(@args);
-    }
-    else {
-        print join("\n", @args);
-    }
-}
 
 =head3 errors
 
