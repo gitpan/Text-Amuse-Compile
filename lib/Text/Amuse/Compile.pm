@@ -12,7 +12,9 @@ use File::Spec;
 use Text::Amuse::Compile::Templates;
 use Text::Amuse::Compile::File;
 use Text::Amuse::Compile::Merged;
+
 use Cwd;
+use Fcntl qw/:flock/;
 
 =head1 NAME
 
@@ -20,11 +22,11 @@ Text::Amuse::Compile - Compiler for Text::Amuse
 
 =head1 VERSION
 
-Version 0.17
+Version 0.18
 
 =cut
 
-our $VERSION = '0.17';
+our $VERSION = '0.18';
 
 =head1 SYNOPSIS
 
@@ -46,7 +48,7 @@ Format options (by default all of them are activated);
 
 =item cleanup
 
-Remove auxiliary files after compilation (.status, .ok)
+Remove auxiliary files after compilation (.status)
 
 =item tex
 
@@ -84,6 +86,14 @@ The zipped sources
 
 An hashref of key/value pairs to pass to each template in the
 C<options> namespace.
+
+=item standalone
+
+Do not force bcor=0 and oneside for plain tex and pdf
+
+=item debug
+
+Slow down the compilation sleeping for a while. DO NOT USE.
 
 =back
 
@@ -142,7 +152,10 @@ sub new {
 
     $self->{report_failure_sub} = delete $params{report_failure_sub};
     $self->{logger} = delete $params{logger};
-
+    $self->{debug} = delete  $params{debug};
+    if (exists $params{standalone}) {
+        $self->{standalone} = delete $params{standalone};
+    }
     if (my $extraref = delete $params{extra}) {
         $self->{extra} = { %$extraref };
     }
@@ -195,6 +208,24 @@ sub templates {
 sub cleanup {
     return shift->{cleanup};
 }
+
+sub debug {
+    return shift->{debug};
+}
+
+sub standalone {
+    my $self = shift;
+    unless (defined $self->{standalone}) {
+        if ($self->a4_pdf || $self->lt_pdf) {
+            $self->{standalone} = 0;
+        }
+        else {
+            $self->{standalone} = 1;
+        }
+    }
+    return $self->{standalone};
+}
+
 
 sub extra {
     my $self = shift;
@@ -441,16 +472,15 @@ sub _compile_virtual_file {
                                                document => $doc,
                                                logger => $self->logger,
                                                virtual => 1,
+                                               standalone => $self->standalone,
                                               );
     $self->_muse_compile($muse);
 }
 
 
 sub _compile_file {
-    # this is called from a fork, so print to STDOUT to report.
-    # STDERR is duped to STDOUT so warn/print/die is the same.
     my ($self, $file) = @_;
-
+    die "$file is not a file" unless $file && -f $file;
     # parse the filename and chdir there.
     my ($name, $path, $suffix) = fileparse($file, '.muse', '.txt');
 
@@ -466,19 +496,46 @@ sub _compile_file {
                 templates => $self->templates,
                 options => { $self->extra },
                 logger => $self->logger,
+                standalone => $self->standalone,
                );
 
     my $muse = Text::Amuse::Compile::File->new(%args);
     $self->_muse_compile($muse);
 }
 
+# write the  status file and unlock it after that.
+
+sub _write_status_file {
+    my ($self, $fh, $status) = @_;
+    my $localtime = localtime();
+    my %avail = (
+                 FAILED => 1,
+                 DELETED => 1,
+                 OK => 1,
+                );
+    die unless $avail{$status};
+    print $fh "$status $$ $localtime\n";
+    flock($fh, LOCK_UN) or die "Cannot unlock status file\n";
+    close $fh;
+}
+
 sub _muse_compile {
     my ($self, $muse) = @_;
-    die "Couldn't acquire lock on " . $muse->name . $muse->suffix . '!'
-      unless $muse->mark_as_open;
-    my @fatals;
+    my $statusfile = $muse->status_file;
+    open (my $fhlock, '>:encoding(utf-8)', $statusfile)
+      or die "Cannot open $statusfile\n!";
+    flock($fhlock, LOCK_EX | LOCK_NB) or die "Cannot acquire lock on $statusfile";
 
-    unless ($muse->is_deleted) {
+    if ($self->debug) {
+        sleep 5;
+    }
+    my @fatals;
+    $muse->check_status;
+    if ($muse->is_deleted) {
+        $self->_write_status_file($fhlock, 'DELETED');
+        return;
+    }
+    else {
         foreach my $method ($self->compile_methods) {
             eval {
                 $muse->$method;
@@ -494,9 +551,12 @@ sub _muse_compile {
         }
     }
     if (@fatals) {
+        $self->_write_status_file($fhlock, 'FAILED');
         die join(" ", @fatals);
     }
-    $muse->mark_as_closed;
+    else {
+        $self->_write_status_file($fhlock, 'OK');
+    }
     $muse->cleanup if $self->cleanup;
 }
 

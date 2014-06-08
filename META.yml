@@ -3,30 +3,30 @@ abstract: 'Compiler for Text::Amuse'
 author:
   - 'Marco Pessotto <melmothx@gmail.com>'
 build_requires:
-  File::Temp: 0
-  Test::More: 0
+  File::Temp: '0'
+  Test::More: '0'
 configure_requires:
-  ExtUtils::MakeMaker: 0
+  ExtUtils::MakeMaker: '0'
 dynamic_config: 1
 generated_by: 'ExtUtils::MakeMaker version 6.86, CPAN::Meta::Converter version 2.120351'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
-  version: 1.4
+  version: '1.4'
 name: Text-Amuse-Compile
 no_index:
   directory:
     - t
     - inc
 requires:
-  Archive::Zip: 0
-  EBook::EPUB: 0.6
-  File::Slurp: 0
-  IO::Pipe: 0
-  PDF::Imposition: 0.07
-  Template: 2.24
-  Text::Amuse: 0.11
-  perl: 5.010001
+  Archive::Zip: '0'
+  EBook::EPUB: '0.6'
+  File::Slurp: '0'
+  IO::Pipe: '0'
+  PDF::Imposition: '0.07'
+  Template: '2.24'
+  Text::Amuse: '0.11'
+  perl: '5.010001'
 resources:
   repository: https://gitorious.org/text-amuse-compile
-version: 0.17
+version: '0.18'
