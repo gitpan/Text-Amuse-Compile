@@ -24,8 +24,8 @@ requires:
   IO::Pipe: '0'
   PDF::Imposition: '0.07'
   Template: '2.24'
-  Text::Amuse: '0.11'
+  Text::Amuse: '0.14'
   perl: '5.010001'
 resources:
   repository: https://gitorious.org/text-amuse-compile
-version: '0.20'
+version: '0.21'
