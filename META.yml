@@ -28,4 +28,4 @@ requires:
   perl: '5.010001'
 resources:
   repository: https://gitorious.org/text-amuse-compile
-version: '0.21'
+version: '0.22'
