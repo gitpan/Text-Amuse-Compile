@@ -46,8 +46,8 @@
    "release_status" : "stable",
    "resources" : {
       "repository" : {
-         "url" : "https://gitorious.org/text-amuse-compile"
+         "url" : "https://github.com/melmothx/text-amuse-compile"
       }
    },
-   "version" : "0.24"
+   "version" : "0.25"
 }
